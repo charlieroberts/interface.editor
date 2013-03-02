@@ -1,0 +1,785 @@
+<html>
+<head>
+  
+<script src="./jquery-ui-1.10.1.custom/js/jquery-1.9.1.js"></script>
+<script src="jquery-ui-1.10.1.custom/js/jquery-ui-1.10.1.custom.js" type="text/javascript" charset="utf-8"></script>
+<script src="./jscolor/jscolor.js" type="text/javascript" charset="utf-8"></script>
+
+<script src="codemirror.js" type="text/javascript" charset="utf-8"></script>
+<script src="javascript.js" type="text/javascript" charset="utf-8"></script>
+
+<script src="mousetrap.js" type="text/javascript" charset="utf-8"></script>
+<script src="interface.js" type="text/javascript" charset="utf-8"></script>
+
+<link rel="stylesheet" href="codemirror.css" type="text/css" media="screen" title="no title" charset="utf-8">
+<link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.theme.css" type="text/css" media="screen" title="no title" charset="utf-8">
+<link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.button.css" type="text/css" media="screen" title="no title" charset="utf-8">
+<link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.resizable.css" type="text/css" media="screen" title="no title" charset="utf-8">
+<link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.accordion.css" type="text/css" media="screen" title="no title" charset="utf-8">
+
+<title>Hello World!</title>
+
+<style>
+body { font-family:Helvetica, sans-serif; }
+ul { list-style:none; margin:0; padding:0;}
+h3 { font-size:1em; margin-bottom:0;}
+td { font-size:.6em; }
+
+.ui-widget{font-size:.7em;}
+
+.widgetGen{
+  display:block;
+  width:50px;height:50px;
+}
+
+#widgets {
+  height:150px;
+}
+#widgets ul li {
+  display:inline;
+}
+
+#widgets ul li>button {
+  height:3em;
+}
+
+* {
+  -moz-box-sizing:border-box;
+  -webkit-box-sizing:border-box;
+  box-sizing:border-box;
+}
+
+#editor {
+  width:100%;
+  height:80%;
+  display:block;
+  background-color:#eee;
+  position:relative;
+}
+#interfaceArea {
+  left:0;
+  width:80%;
+  height:100%;
+  display:block;
+  border:1px solid #aaa;
+  float:left;
+}
+
+#interfaceArea, #widgets {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+#sidebar {
+  float:right;
+  right:0;
+  width:20%;
+  height:100%;
+  display:block;
+  border:1px solid #aaa;
+  overflow: scroll;
+}
+.block{
+  width:50px;
+  height:50px;
+  background-color:#ccc;
+  border:1px solid #666;
+}
+
+#options {
+  padding:5px;
+}
+
+.selected { background: rgba(200,200,0,.5) !important; }
+.red { background: rgba(255,0,0,1) !important; }
+
+</style>
+</head>
+<body>
+  <div class="ui-widget-header ui-corner-all">
+    <input style="display:none;" id="fileDialog" type="file" />
+    <input style="display:none;" id="saveDialog" type='file' nwsaveas />
+
+    <button id="newButton">New Interface</button>
+    <button id="openButton">Open</button>
+    <button id="saveButton">Save</button>
+    <button id="playButton" style="font-size:1.75em; width:1em"></button>
+    <button id="stopButton" style="font-size:1.75em; width:1em"></button>    
+  </div>
+
+<div id="editor">
+  <div id="interfaceArea"></div>
+  
+  <div id="sidebar">
+    <div>
+      <h3>Widgets</h3>
+      <div id="widgets">
+        <ul>
+        <li><div>Button</div></li>
+        <li><div>Slider</div></li>
+        <li><div>Crossfader</div></li>
+        <li><div>Range</div></li>
+        <li><div>Knob</div></li>
+        <li><div>XY</div></li>
+        <li><div>MultiButton</div></li>
+        <li><div>MultiSlider</div></li>
+        <li><div>Label</div></li>
+        <li><div>Menu</div></li>
+        <li><div>TextField</div></li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <h3>Selected Widget Options</h3>
+      <div id="options" style="display:block"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+if(typeof require !== 'undefined') {
+  var gui = require('nw.gui'),
+      fs  = require('fs');
+      win = gui.Window.get();
+  
+  console.log(win, fs);
+}
+
+var selected = null;
+function chooseFile(name, callback) {
+  var chooser = $(name);
+  chooser.trigger('click');            
+  chooser.change(callback);
+}
+
+Mousetrap.bind('backspace', function() { 
+  if(selected !== null && selected !== panel) {
+    if(typeof selected.widget !== 'undefined') panel.remove( selected.widget );
+    widgets.splice( widgets.indexOf( selected ) );
+    $(selected).remove();
+    panel.refresh();
+  }
+}, 'keyup');
+
+function keymove() {
+  if(selected.initialized === true)  {
+    var drag = selected,
+        pos = $(drag).position(),
+        containerPos = $(panel.container).position(),
+        w = $("#interfaceArea").width(),
+        h = $("#interfaceArea").height(),
+        x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
+        y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
+        width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
+        height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
+    
+    selected.widget.bounds = [x,y,width,height];
+  }
+}
+
+Mousetrap.bind('left', function() { if(selected !== null) $(selected).css('left', '-=1px'); keymove(); });
+Mousetrap.bind('right', function() { if(selected !== null) $(selected).css('left', '+=1px'); keymove(); });
+Mousetrap.bind('up', function() { if(selected !== null) $(selected).css('top', '-=1px'); keymove(); });
+Mousetrap.bind('down', function() { if(selected !== null) $(selected).css('top', '+=1px'); keymove(); });
+
+Mousetrap.bind('shift+left', function() { if(selected !== null) $(selected).css('left', '-=5px'); keymove(); });
+Mousetrap.bind('shift+right', function() { if(selected !== null) $(selected).css('left', '+=5px'); keymove(); });
+Mousetrap.bind('shift+up', function() { if(selected !== null) $(selected).css('top', '-=5px'); keymove(); });
+Mousetrap.bind('shift+down', function() { if(selected !== null) $(selected).css('top', '+=5px'); keymove(); });
+
+var optionIsDown = false;
+Mousetrap.bind('option', function() { optionIsDown = true; }, 'keydown');
+Mousetrap.bind('option', function() { optionIsDown = false; }, 'keyup');
+
+var makeWidget = function(e, shouldNotTrigger) {
+  var d = $("<div>")
+  .addClass("block")
+  .draggable({ 
+    containment:$("#editor"),
+    scroll:false,
+    snap:true,
+    snapTolerance:5, 
+    start: function() {},
+    revert: function(didDrop) { if(!didDrop) { this.remove(); } },
+    revertDuration:250,
+  })
+  .resizable({
+    handles:"se",
+    stop: function(event, ui){
+      
+      if(selected.widget) {
+        var w = $("#interfaceArea").width(),
+            h = $("#interfaceArea").height(),
+            width = panel.useRelativeSizesAndPositions ? ui.size.width / w : Math.round(ui.size.width),
+            height = panel.useRelativeSizesAndPositions ? ui.size.height / h : Math.round(ui.size.height);
+        
+        selected.widget.bounds = [selected.widget.x, selected.widget.y, width, height];       
+      }
+    },
+    containment: $("#interfaceArea"),
+  })
+  .mousedown(function(e) { 
+    if(selected !== null) {
+      $(selected).removeClass('selected');
+    }
+    if(optionIsDown) {
+      makeWidget.call(d, e, true);
+    }else{
+      selected = this;
+      $(selected).addClass('selected');
+      makeOptions();
+    }
+  })
+  .css({
+    position : 'absolute',
+    display : 'block',
+    backgroundColor : 'rgba(255,255,255,.5)',
+  })
+  .offset( {left:$(this).position().left + 5, top:$(this).position().top + 5} );
+  
+  $("#editor").append(d);
+  
+  if(!shouldNotTrigger)
+    $(d).trigger(e);
+  
+  selected.widgetType = $($(this).children()[0]).html();// || this.type;
+}
+
+$("#widgets ul li div").on('mousedown', makeWidget );
+
+var wh = {
+  Slider : [50,250],
+  Button : [50,50],
+  XY     : [250,250],
+  Label  : [150, 35],
+  Menu   :  [150, 35],  
+  MultiButton  : [250, 250],
+  MultiSlider  : [350, 150],
+  Crossfader   : [250, 50],
+  Range   : [250, 50],
+  Knob  : [100, 100],
+  TextField  : [150, 35],  
+}
+
+var widgets = [];
+$("#interfaceArea").droppable({
+  accept:".block",
+  revert: true,
+  drop: function( event, ui ) { 
+    var drag = selected,
+        pos = $(drag).position(),
+        containerPos = $(panel.container).position(),
+        w = $("#interfaceArea").width(),
+        h = $("#interfaceArea").height(),
+        x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
+        y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
+        width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
+        height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
+    
+    if(selected.initialized === true)  {
+      selected.widget.bounds = [x,y,width,height];
+    }else{
+      var d = new Interface[selected.widgetType]({
+        x: x,
+        y: y, 
+        width: width, 
+        height: height,
+      })
+
+      selected.widget = d;
+      widgets.push(selected);
+      selected.initialized = true;
+      window[d.name] = d;
+      d.panel = panel;
+
+      makeOptions();
+
+    }
+  },
+  over: function( event, ui ) {
+    if(!selected.init) {
+      var w = wh[selected.widgetType][0],
+          h = wh[selected.widgetType][1];
+      $(selected).animate({
+          width:(w-2)+'px',
+          height:(h-2)+'px',
+        }, 200, function() {
+          selected.init = true;
+          // Animation complete.
+      });
+    }
+  },
+})
+
+panel = new Interface.Panel({ container:$("#interfaceArea"), name:'panel' });
+panel.widget = panel;
+panel.name = 'panel';
+
+$(panel.canvas).mousedown(function(e) {
+  if(selected !== null) {
+    $(selected).removeClass('selected');
+  }
+  selected = panel;
+  makeOptions();
+});
+var __status = false;
+
+runstop = function(runOrStop) {
+  if(!__status && runOrStop) {
+    $("#widgets ul li div").off('mousedown', makeWidget );
+    panel.active = true;
+    //$(panel.container).on( 'mousedown mousemove mouseup', panel.mouseEvent ); 
+    for(var i = 0; i < widgets.length; i++) {
+      var w = widgets[i];
+      if(typeof w.widget.children !== 'undefined' && w.widget.children.length > 0 && w.widgetType !== "XY") {
+        for(var j = 0; j < w.widget.children.length; j++) {
+          window[w.widget.name] = w.widget.children[j];
+          panel.add(window[w.widget.name]);
+        }
+      }else{
+        window[w.widget.name] = w.widget;
+        panel.add(w.widget);
+      }
+      $(w).hide();
+    }
+    __status = true;
+  }else if(!runOrStop){
+    $("#widgets ul li div").on('mousedown', makeWidget );
+    //$(panel.container).off();
+    panel.active = false;
+    for(var i = 0; i < widgets.length; i++) {
+      $(widgets[i]).show();
+      panel.remove(widgets[i].widget);
+      panel.refresh();
+    }
+    __status = false;
+  }else{
+    panel.active = true;
+  }
+}
+
+panel.active = false;
+
+$("#newButton").button({icons:{ primary:'ui-icon-document' } });
+$("#openButton").button({icons:{ primary:'ui-icon-folder-open' } });
+$("#saveButton").button({icons:{ primary:'ui-icon-disk' } });
+$("#playButton").button( { text:false, icons:{ primary:'ui-icon-play' } }).click(function() { runstop(1) });
+$("#stopButton").button( { text:false, icons:{ primary:'ui-icon-stop' } }).click(function() { runstop(0) });
+
+$("#widgets ul li div").button();
+
+(function($) {
+  $(function() {
+    $("#sidebar > div").accordion({ 
+      header: "h3",
+      collapsible: true,
+      heightStyle:'content',
+      //create: function(event) { $(event.target).accordion( {active:false} ); },
+      activate : function(event, ui) {
+        $(ui.newHeader).blur();
+      },
+    });
+  })
+})(jQuery);
+
+$("#sidebar > div").first().accordion({ active:0 });
+
+$("#panelBackgroundColor").change( function() { panel.background = $(this).val(); })
+$("#panelFillColor").change( function() { panel.fill = $(this).val(); })
+$("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
+
+  cereal = function(widget) {
+    console.log("CEREAL");
+    var json = {};
+    for(var i = 0; i < widget._serializeMe.length; i++) {
+      var key = widget._serializeMe[i];
+      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
+        json[key] = widget[key];
+      }
+    }
+    for(var j = 0; j < widget.serializeMe.length; j++) {
+      var key = widget.serializeMe[j];
+      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
+        json[key] = widget[key];
+      }
+    }
+
+    var str = widget.name + " = new Interface." + widget.type + "("
+    
+    str += serialize(json);
+    
+    str += ");\n"
+    
+    return str;
+  }
+  
+  // adapted from http://blog.stchur.com/2007/04/06/serializing-objects-in-javascript/
+  function serialize(_obj){
+     switch (typeof _obj){
+        case 'number':
+        case 'boolean':
+        case 'function':
+           return _obj;
+           break;
+           
+        case 'string':
+           return '"' + _obj + '"';
+           break;
+
+        case 'object':
+           var str;
+           if (Array.isArray(_obj) || typeof _obj.callee !== 'undefined'){
+              str = '[';
+              var i, len = _obj.length;
+              for (i = 0; i < len-1; i++) { str += serialize(_obj[i]) + ','; }
+              str += serialize(_obj[i]) + ']';
+           }else{
+              str = '{\n';
+              var key, count = 0, length = Object.keys(_obj).length - 1;
+
+              for (key in _obj) { 
+                str += "  \"" + key + '\":' + serialize(_obj[key]);
+                if(count++ < length) str += ",\n";
+              }
+              str += '\n}';
+           }
+           return str;
+           break;
+
+        default:
+           return 'UNKNOWN';
+           break;
+     }
+  }
+
+  openInterface = function() {
+    chooseFile(
+      "#fileDialog",
+      function(evt) { 
+        var file = fs.readFileSync($(this).val(), ['utf-8']); 
+        processFile(file);
+      }
+    );
+  };
+  
+  processFile = function(file) {
+    var expr = /\(\{[^;]*\}\);/g // doesn't allow semi-colons in user-defined functions, but other than that pretty good
+
+    var objs = file.match(expr);
+    
+    for(var i = 1; i < objs.length; i++) {
+      (function() {
+        objs[i] = objs[i].substr(1, objs[i].length - 3); // get rid of trailing );
+        eval("var widget = " + objs[i]);
+        
+        var type = widget.type;
+        window[widget.name] = widget = new Interface[widget.type](widget);
+        
+        panel.add(window[widget.name]);
+      
+        var d = $("<div>").addClass("block");
+  
+        $(d).draggable({ 
+          containment:$("#interfaceArea"),
+          scroll:false,
+          snap:true,
+          snapTolerance:5, 
+          revert: function(didDrop) { if(!didDrop) { this.remove(); } },
+          revertDuration:250,
+        });
+        
+        d.resizable({
+          handles:"se",
+          stop: function(event, ui){
+      
+            if(selected.widget) {
+              var w = $("#interfaceArea").width(),
+                  h = $("#interfaceArea").height(),
+                  width = ui.size.width / w,
+                  height = ui.size.height / h;
+        
+              selected.widget.width = width;
+              selected.widget.height = height;        
+            }
+          },
+          containment: $("#interfaceArea"),
+        });
+        d.mousedown(function(e) { 
+          if(selected !== null) {
+            $(selected).removeClass('selected');
+          }
+          selected = d;
+          $(selected).addClass('selected');
+          e.preventDefault();
+          makeOptions();
+        });
+
+        var w = $("#interfaceArea").width(),
+            h = $("#interfaceArea").height();
+          
+        var dcss = {width: widget.width * w, height: widget.height * h };
+        dcss.position = 'absolute';
+        dcss.display = 'block';
+        dcss.backgroundColor = 'rgba(255,255,255,.5)'
+
+        $(d).css( dcss );
+        $(d).offset( {left:widget.x * w, top:widget.y * h} );
+
+        $("#editor").append(d);
+      
+
+        d.widgetType = type;
+        d.widget = widget;
+        d.initialized = d.init = true;
+
+        widgets.push(d);
+        selected = d;
+        selected.widget = widget;
+      })();
+    }
+    runstop(false);
+  };
+  saveInterface = function() {
+    var template = fs.readFileSync( './template.htm', ['utf-8'] );
+
+    var str = "panel = new Interface.Panel(";
+    var json = {};
+    
+    for(var i = 0; i < panel.serializeMe.length; i++) {
+      var key = panel.serializeMe[i];
+      if(typeof panel[key] !== 'undefined' && panel[key] !== null) {
+        json[key] = panel[key];
+      }
+    }
+    
+    str += serialize(json);
+    
+    str += ');\n'
+
+    for(var i = 0; i < panel.children.length; i++) {
+      var child = panel.children[i];
+      str += cereal( child );
+      str += 'panel.add( ' + child.name + ' );\n';
+    }
+    
+    template = template.replace('// place your script here', str);
+
+    chooseFile(
+      "#saveDialog",
+      function(evt) { 
+        console.log("SAVE TO : " + $(this).val());
+        fs.writeFileSync($(this).val(), template, ['utf-8']);
+      } 
+    )
+    return template;
+  };
+  
+  $("#openButton").click(openInterface);
+
+  $("#saveButton").click(saveInterface);
+  
+  $(window).resize( function(e) { 
+    if (e.target == window) {
+      panel.redoBoundaries();
+    
+      for(var i = 0; i < widgets.length; i++) {
+        var w = widgets[i];
+        var _widget = w.widget;
+
+        $(w).css({
+          x : _widget.x * $(panel.canvas).width(),
+          y : _widget.y * $(panel.canvas).height(),
+          width  : _widget.width * $(panel.canvas).width(),
+          height : _widget.height * $(panel.canvas).height(),
+        });
+      }
+      
+      e.stopPropagation();
+    }
+  });
+  
+  makeOptions = function() {
+    var json = {}
+    var widget = selected.widget;
+    if(typeof widget !== 'undefined' ) {
+      var heading = $("<h3>").text( widget.type ).css({ 'margin-top':0 });
+      var list = $("<table>").css({width:"100%"});
+      if(properties[ widget.type ]) {
+        var props = properties[ widget.type ];
+        var count = 0;
+        for(var _key in props) {
+          (function() {
+            var c = count++;
+            var _w = widget;
+            var key = _key;
+            var row = $("<tr>");
+            
+            var input, label, extra, type = props[key];
+            if(Array.isArray(type)) {
+              input = $("<select>");
+              for(var i = 0; i < type.length; i++) {
+                var option = $("<option>"+type[i]+"</option>");
+                input.append(option);
+              }
+            }else{
+              if(type === 'boolean') {
+                input = $("<select>").append("<option value='true'>true</option>").append("<option value='false'>false</option>");
+                $(input).val( _w[ key ] === true ? 'true' : 'false' );
+              }else if(type === 'color'){
+                if(widget.type === 'Panel') {
+                  input = $("<input>").addClass('color').val( _w[ key ] );  
+                }else{
+                  input = $("<input>").addClass('color').val( _w[ "_" + key ]() );
+                }
+              }else if(type === 'function') {
+                input = $("<button>edit function</button>").button();
+                extra = $("<tr>").css({display:"none", width:'100%', height:'100px' });
+                var td = $("<td colspan=2>");
+                var ta = $("<textarea>").css({width:'100%', height:'100px'});
+                ta.val( '' + _w[key] );
+                td.append( ta );
+                extra.append( td );
+
+                input.click( function() { 
+                  if($(extra).css('display') !== 'none') {
+                    var functionString = ta.val();
+                    if(functionString !== '')
+                    eval('_w[key] = ' + functionString);
+                  }
+                  extra.toggle(); 
+                });
+              }else if (type === 'readonly'){
+                input = $("<span>").text( _w[key] );
+                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+              }else{
+                input = $("<input>");
+                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+              }
+            }
+            
+            input.attr("id", _w.name + "_" + key);
+            label = $("<label>").attr("for", _w.name + "_" + key);
+            label.html(key);
+            
+            //if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+            
+            $(input).change( function() {
+              if(type === 'boolean') { 
+                _w[key] = $(input).val() === 'true' ? true : false;
+              }else if(type === 'integer') { 
+                _w[key] = parseInt( $(input).val() );
+              }else if(type === 'float') { 
+                _w[key] = parseFloat( $(input).val() );
+              }else{
+                if(key === 'target') {
+                  var v = $(input).val()
+                  _w[key] = v === 'OSC' || v === 'MIDI' ? v : eval(v);
+                }else{
+                  _w[key] = $(input).val();
+                }
+              }
+              _w.refresh();
+            });
+            
+            row.append( $("<td>").append(label) ); 
+            var _input = $("<td>").append(input);
+            row.append( _input );
+            
+            list.append(row);
+            if(typeof extra !== 'undefined') list.append(extra); 
+          })();
+        }
+      }
+      
+      $("#options").html(heading);
+      $("#options").append(list);
+      jscolor.bind();
+    }
+  }
+  
+  propertyTypes = {
+    name          : 'string',
+    value         : 'any',
+    background: "color",
+    fill: "color",
+    stroke: "color",
+    x : "number",
+    y : "number",
+    width : "number",
+    height: "number",
+  };
+  tkmm = {
+    target : 'string',
+    key    : 'string',
+    min    : 'float',
+    max    : 'flaot',
+  }
+  events = {
+    onvaluechange : 'function',
+    ontouchmousedown : 'function',
+    ontouchmousemove : 'function',    
+    ontouchmouseup : 'function',
+    ontouchstart  : 'function',
+    ontouchmove   : 'function',
+    ontouchend    : 'function',
+    onmousedown   : 'function',
+    onmousemove   : 'function',
+    onmouseup     : 'function',
+  }
+  
+  compose = function() {
+    var obj = {};
+    for(var i = 0; i < arguments.length; i++) {
+      Interface.extend( obj, arguments[i] );
+    }
+    return obj;
+  }
+  properties = {
+    Knob  : (function() { 
+      var _a = compose( propertyTypes, { usesRotation:'boolean', centerZero:'boolean'}, tkmm, events ); 
+      delete _a.height;
+      return _a; 
+    })(),
+    
+    TextField : compose( propertyTypes, { fontSize:'number', target:'string', key:'string', onvaluechange:'function'} ), 
+    
+    Menu : compose( propertyTypes, { options : 'any', fontSize:'number', target:'string', key:'string', onvaluechange:'function'  } ), 
+    
+    Crossfader : compose( propertyTypes, { crossfaderWidth : 'number', requiresFocus: 'boolean', }, tkmm, events), 
+    
+    XY     : compose( propertyTypes, { requiresFocus: 'boolean', numChildren:'integer', usePhysics:'boolean', friction:'number', maxVelocity:'number', detectCollisions:'boolean', fps:'number'}, tkmm, events),     
+    
+    Label  : compose( propertyTypes, { size : 'number', "style" : ['normal', 'bold', 'italic'], hAlign: ['left', 'center', 'right'], vAlign : ['top', 'middle', 'bottom'], font : 'string' } ),
+    
+    MultiButton : (function() { 
+      var _a = compose( 
+        propertyTypes, 
+        { mode : ['toggle', 'momentary', 'contact'], requiresFocus:'boolean', rows:'number', columns:'number' }, 
+        tkmm,
+        events 
+      );
+      delete _a.value;
+      return _a;
+    })(),    
+    
+    Button : compose( propertyTypes, { mode : ['toggle', 'momentary', 'contact'], requiresFocus: 'boolean', label:'string', }, tkmm, events),    
+    
+    Slider : compose( propertyTypes, { isVertical:'boolean', label:'string', requiresFocus:'boolean', }, tkmm, events ),
+    
+    MultiSlider : (function() {
+      var _a = compose( propertyTypes, { /*isVertical:'boolean',*/ requiresFocus:'boolean', count:'number' }, events );
+      delete _a.value; return _a;
+    })(),
+    
+    Range : compose( propertyTypes, { requiresFocus:'boolean', handleSize:'number' }, tkmm, events ),
+    
+    Panel : { name:'string', useRelativeSizesAndPositions:'boolean', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
+  };
+
+  setTimeout(function() { selected = panel; makeOptions();}, 100);
+</script>
+</body>
+</html
