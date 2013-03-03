@@ -17,12 +17,12 @@
 <link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.resizable.css" type="text/css" media="screen" title="no title" charset="utf-8">
 <link rel="stylesheet" href="jquery-ui-1.10.1.custom/css/base/jquery.ui.accordion.css" type="text/css" media="screen" title="no title" charset="utf-8">
 
-<title>Hello World!</title>
+<title>Interface.js Editor</title>
 
 <style>
-body { font-family:Helvetica, sans-serif; }
-ul { list-style:none; margin:0; padding:0;}
-h3 { font-size:1em; margin-bottom:0;}
+body { font-family:Helvetica, sans-serif; margin:0; }
+ul { list-style:none; margin:0; padding:0; }
+h3 { font-size:1em; margin-bottom:0;  }
 td { font-size:.6em; }
 
 .ui-widget{font-size:.7em;}
@@ -51,7 +51,7 @@ td { font-size:.6em; }
 
 #editor {
   width:100%;
-  height:80%;
+  height:100%;
   display:block;
   background-color:#eee;
   position:relative;
@@ -77,6 +77,7 @@ td { font-size:.6em; }
   float:right;
   right:0;
   width:20%;
+  min-width:20em;
   height:100%;
   display:block;
   border:1px solid #aaa;
@@ -99,21 +100,15 @@ td { font-size:.6em; }
 </style>
 </head>
 <body>
-  <div class="ui-widget-header ui-corner-all">
-    <input style="display:none;" id="fileDialog" type="file" />
-    <input style="display:none;" id="saveDialog" type='file' nwsaveas />
-
-    <button id="newButton">New Interface</button>
-    <button id="openButton">Open</button>
-    <button id="saveButton">Save</button>
-    <button id="playButton" style="font-size:1.75em; width:1em"></button>
-    <button id="stopButton" style="font-size:1.75em; width:1em"></button>    
-  </div>
-
 <div id="editor">
   <div id="interfaceArea"></div>
   
   <div id="sidebar">
+    <input style="display:none;" id="fileDialog" type="file" />
+    <input style="display:none;" id="saveDialog" type='file' nwsaveas />
+    
+    <button id="playButton" style="font-size:.75em;">Test Interface</button>
+    <button id="stopButton" style="font-size:.75em;">Edit Interface</button>  
     <div>
       <h3>Widgets</h3>
       <div id="widgets">
@@ -143,253 +138,473 @@ td { font-size:.6em; }
 if(typeof require !== 'undefined') {
   var gui = require('nw.gui'),
       fs  = require('fs');
-      win = gui.Window.get();
+      win = gui.Window.get(),
+      your_menu = new gui.Menu({ type: 'menubar' }),
+      file = new gui.MenuItem({ label: 'File' }),
+      submenu = new gui.Menu();
+  
+  submenu.append( new gui.MenuItem({ 
+    label: 'Open Interface cmd-O',
+    click: function() {},//global.interface.openFile,
+  }));
+  
+  submenu.append( new gui.MenuItem({ 
+    label: 'Save Interface cmd-S',
+    click: function() {}, //global.interface.saveFile,
+  }) );
+  
+  file.submenu = submenu;
+  
+  gui.Window.get().menu = your_menu;
+  your_menu.insert( file, 1 );
   
   console.log(win, fs);
 }
 
-var selected = null;
+Interface.Editor = {
+  isOptionDown : false,
+  isEditing : true,
+  widgets : [],
+  selected : null,
+  
+  init : function() {
+    $("#widgets ul li div").on( 'mousedown', Interface.Editor.makeWidget );
+    
+    $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() );
+
+    this.panel = new Interface.Panel({ container:$("#interfaceArea"), name:'panel' });
+    this.panel.widget = this.panel;
+    this.panel.name = 'panel';
+    this.panel.active = false;
+
+    $(this.panel.canvas).mousedown(function(e) {
+      if(Interface.Editor.isEditing) {
+        if(Interface.Editor.selected !== null) {
+          $(Interface.Editor.selected).removeClass('selected');
+        }
+        Interface.Editor.selected = Interface.Editor.panel;
+        Interface.Editor.makeOptions();
+      }
+    });
+    
+    $("#interfaceArea").droppable({
+      accept:".block",
+      revert: true,
+      drop: function( event, ui ) { 
+        var drag = Interface.Editor.selected,
+            pos = $(drag).position(),
+            containerPos = $(Interface.Editor.panel.container).position(),
+            w = $("#interfaceArea").width(),
+            h = $("#interfaceArea").height(),
+            x = Interface.Editor.panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
+            y = Interface.Editor.panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
+            width = Interface.Editor.panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
+            height = Interface.Editor.panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
+    
+        if(Interface.Editor.selected.initialized === true)  {
+          Interface.Editor.selected.widget.bounds = [x,y,width,height];
+        }else{
+          var d = new Interface[Interface.Editor.selected.widgetType]({
+            x: x,
+            y: y, 
+            width: width, 
+            height: height,
+          })
+
+          Interface.Editor.selected.widget = d;
+          Interface.Editor.widgets.push(Interface.Editor.selected);
+          Interface.Editor.selected.initialized = true;
+          window[d.name] = d;
+          d.panel = Interface.Editor.panel;
+
+          Interface.Editor.makeOptions();
+        }
+      },
+      over: function( event, ui ) {
+        if(!Interface.Editor.selected.init) {
+          var w = Interface.Editor.defaultWidthsAndHeights[Interface.Editor.selected.widgetType][0],
+              h = Interface.Editor.defaultWidthsAndHeights[Interface.Editor.selected.widgetType][1];
+          $(Interface.Editor.selected).animate({
+              width:(w-2)+'px',
+              height:(h-2)+'px',
+            }, 200, function() {
+              Interface.Editor.selected.init = true;
+              // Animation complete.
+          });
+        }
+      },
+    });
+    
+    $("#playButton").button({ icons:{ primary:'ui-icon-play' } }).click(function() { Interface.Editor.runstop(1) });
+    $("#stopButton").button({ icons:{ primary:'ui-icon-stop' } }).click(function() { Interface.Editor.runstop(0) });
+    $("#widgets ul li div").button();
+    
+    (function($) {
+      $(function() {
+        $("#sidebar > div").accordion({ 
+          header: "h3",
+          collapsible: true,
+          heightStyle:'content',
+          //create: function(event) { $(event.target).accordion( {active:false} ); },
+          activate : function(event, ui) {
+            $(ui.newHeader).blur();
+          },
+        });
+      })
+    })(jQuery);
+
+    $("#sidebar > div").first().accordion({ active:0 });
+
+    $("#panelBackgroundColor").change( function() { Interface.Editor.panel.background = $(this).val(); })
+    $("#panelFillColor").change( function() { Interface.Editor.panel.fill = $(this).val(); })
+    $("#panelStrokeColor").change( function() { Interface.Editor.panel.stroke = $(this).val(); })
+
+    setTimeout(function() { Interface.Editor.selected = Interface.Editor.panel; Interface.Editor.makeOptions(); }, 100);
+    
+    this.bindKeys();
+  },
+  
+  bindKeys : function() {
+    Mousetrap.bind( 'command+r', function() {  win.reload(); } );
+    Mousetrap.bind( 'command+d', function() {  win.showDevTools(); } );
+    Mousetrap.bind( 'backspace', Interface.Editor.deleteSelectedWidget, 'keyup' );
+    
+    Mousetrap.bind('left',  function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('left', '-=1px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('right', function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('left', '+=1px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('up',    function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('top', '-=1px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('down',  function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('top', '+=1px'); Interface.Editor.widgetHasMoved(); });
+
+    Mousetrap.bind('shift+left',  function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('left', '-=5px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('shift+right', function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('left', '+=5px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('shift+up',    function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('top', '-=5px'); Interface.Editor.widgetHasMoved(); });
+    Mousetrap.bind('shift+down',  function() { if(Interface.Editor.selected !== null) $(Interface.Editor.selected).css('top', '+=5px'); Interface.Editor.widgetHasMoved(); });
+    
+    Mousetrap.bind('option', function() { Interface.Editor.isOptionDown = true; }, 'keydown');
+    Mousetrap.bind('option', function() { Interface.Editor.isOptionDown = false; }, 'keyup');
+    
+    Mousetrap.bind( 'command+s', function() { console.log("SAVE"); Interface.Editor.saveInterface(); } );
+    
+  },
+  
+  makeWidget : function(e, shouldNotTrigger) {
+    console.log("MAKE WIDGET", this);
+    var d = $("<div>")
+    .addClass("block")
+    .draggable({ 
+      containment:$("#editor"),
+      scroll:false,
+      snap:true,
+      snapTolerance:5, 
+      start: function() {},
+      revert: function(didDrop) { if(!didDrop) { this.remove(); } },
+      revertDuration:250,
+    })
+    .resizable({
+      handles:"se",
+      stop: function(event, ui){
+      
+        if(Interface.Editor.selected.widget) {
+          var w = $("#interfaceArea").width(),
+              h = $("#interfaceArea").height(),
+              width = Interface.Editor.panel.useRelativeSizesAndPositions ? ui.size.width / w : Math.round(ui.size.width),
+              height = Interface.Editor.panel.useRelativeSizesAndPositions ? ui.size.height / h : Math.round(ui.size.height);
+        
+          Interface.Editor.selected.widget.bounds = [Interface.Editor.selected.widget.x, Interface.Editor.selected.widget.y, width, height];       
+        }
+      },
+      containment: $("#interfaceArea"),
+    })
+    .mousedown(function(e) { 
+      if(Interface.Editor.selected !== null) {
+        $(Interface.Editor.selected).removeClass('selected');
+      }
+      if(Interface.Editor.isOptionDown) {
+        makeWidget.call(d, e, true);
+      }else{
+        Interface.Editor.selected = this;
+        $(Interface.Editor.selected).addClass('selected');
+        Interface.Editor.makeOptions();
+      }
+    })
+    .css({
+      position : 'absolute',
+      display : 'block',
+      backgroundColor : 'rgba(255,255,255,.5)',
+    })
+    .offset( {left:$(this).position().left + 5, top:$(this).position().top + 5} );
+  
+    $("#editor").append(d);
+  
+    if(!shouldNotTrigger)
+      $(d).trigger(e);
+  
+    Interface.Editor.selected.widgetType = $($(this).children()[0]).html();// this will be the text in the button that triggers widget construction
+  },
+  
+  deleteSelectedWidget : function() {
+    if(Interface.Editor.selected !== null && Interface.Editor.selected !== panel) {
+      if(typeof Interface.Editor.selected.widget !== 'undefined') panel.remove( Interface.Editor.selected.widget );
+      widgets.splice( widgets.indexOf( Interface.Editor.selected ) );
+      $(Interface.Editor.selected).remove();
+      panel.refresh();
+    }
+  },
+  
+  widgetHasMoved : function() {
+    if(Interface.Editor.selected.initialized === true)  {
+      var drag = Interface.Editor.selected,
+          pos = $(drag).position(),
+          containerPos = $(panel.container).position(),
+          w = $("#interfaceArea").width(),
+          h = $("#interfaceArea").height(),
+          x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
+          y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
+          width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
+          height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
+    
+      Interface.Editor.selected.widget.bounds = [x,y,width,height];
+    }
+  },
+  
+  runstop : function(runOrStop) {
+    console.log("START RUN STOP");
+    if(!Interface.Editor.isEditing && runOrStop) {
+      $("#widgets ul li div").off('mousedown', Interface.Editor.makeWidget );
+      
+      Interface.Editor.panel.active = true;
+      
+      for(var i = 0; i < Interface.Editor.widgets.length; i++) {
+        var w = Interface.Editor.widgets[i];
+        if(typeof w.widget.children !== 'undefined' && w.widget.children.length > 0 && w.widgetType !== "XY") {
+          for(var j = 0; j < w.widget.children.length; j++) {
+            window[w.widget.name] = w.widget.children[j];
+            console.log(window[w.widget.name]);
+            Interface.Editor.panel.add(window[w.widget.name]);
+          }
+        }else{
+          window[w.widget.name] = w.widget;
+          Interface.Editor.panel.add(w.widget);
+        }
+        $(w).hide();
+      }
+      Interface.Editor.isEditing = true;
+    }else if(!runOrStop){
+      $("#widgets ul li div").on('mousedown', Interface.Editor.makeWidget );
+      //$(panel.container).off();
+      Interface.Editor.panel.active = false;
+      for(var i = 0; i < Interface.Editor.widgets.length; i++) {
+        $(Interface.Editor.widgets[i]).show();
+        Interface.Editor.panel.remove(Interface.Editor.widgets[i].widget);
+        Interface.Editor.panel.refresh();
+      }
+      Interface.Editor.isEditing = false;
+    }else{
+      Interface.Editor.panel.active = true;
+    }
+    console.log("END RUN STOP")
+  },
+  
+  makeOptions : function() {
+    var json = {}
+    var widget = Interface.Editor.selected.widget;
+    if(typeof widget !== 'undefined' ) {
+      var heading = $("<h3>").text( widget.type ).css({ 'margin-top':0 });
+      var list = $("<table>").css({width:"100%"});
+      if(Interface.Editor.properties[ widget.type ]) {
+        var props = this.properties[ widget.type ];
+        var count = 0;
+        for(var _key in props) {
+          (function() {
+            var c = count++;
+            var _w = widget;
+            var key = _key;
+            var row = $("<tr>");
+            
+            var input, label, extra, type = props[key];
+            if(Array.isArray(type)) {
+              input = $("<select>");
+              for(var i = 0; i < type.length; i++) {
+                var option = $("<option>"+type[i]+"</option>");
+                input.append(option);
+              }
+            }else{
+              if(type === 'boolean') {
+                input = $("<select>").append("<option value='true'>true</option>").append("<option value='false'>false</option>");
+                $(input).val( _w[ key ] === true ? 'true' : 'false' );
+              }else if(type === 'color'){
+                if(widget.type === 'Panel') {
+                  input = $("<input>").addClass('color').val( _w[ key ] );  
+                }else{
+                  input = $("<input>").addClass('color').val( _w[ "_" + key ]() );
+                }
+              }else if(type === 'function') {
+                input = $("<button>edit function</button>").button();
+                extra = $("<tr>").css({display:"none", width:'100%', height:'100px' });
+                var td = $("<td colspan=2>");
+                var ta = $("<textarea>").css({width:'100%', height:'100px'});
+                ta.val( '' + _w[key] );
+                td.append( ta );
+                extra.append( td );
+
+                input.click( function() { 
+                  if($(extra).css('display') !== 'none') {
+                    var functionString = ta.val();
+                    if(functionString !== '')
+                    eval('_w[key] = ' + functionString);
+                  }
+                  extra.toggle(); 
+                });
+              }else if (type === 'readonly'){
+                input = $("<span>").text( _w[key] );
+                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+              }else{
+                input = $("<input>");
+                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+              }
+            }
+            
+            input.attr("id", _w.name + "_" + key);
+            label = $("<label>").attr("for", _w.name + "_" + key);
+            label.html(key);
+            
+            //if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
+            
+            $(input).change( function() {
+              if(type === 'boolean') { 
+                _w[key] = $(input).val() === 'true' ? true : false;
+              }else if(type === 'integer') { 
+                _w[key] = parseInt( $(input).val() );
+              }else if(type === 'float') { 
+                _w[key] = parseFloat( $(input).val() );
+              }else{
+                if(key === 'target') {
+                  var v = $(input).val()
+                  _w[key] = v === 'OSC' || v === 'MIDI' ? v : eval(v);
+                }else{
+                  _w[key] = $(input).val();
+                }
+              }
+              _w.refresh();
+            });
+            
+            row.append( $("<td>").append(label) ); 
+            var _input = $("<td>").append(input);
+            row.append( _input );
+            
+            list.append(row);
+            if(typeof extra !== 'undefined') list.append(extra); 
+          })();
+        }
+      }
+      
+      $("#options").html(heading);
+      $("#options").append(list);
+      jscolor.bind();
+    }
+  },
+  
+  defaultWidthsAndHeights : {
+    Slider : [50,250],
+    Button : [50,50],
+    XY     : [250,250],
+    Label  : [150, 35],
+    Menu   :  [150, 35],  
+    MultiButton  : [250, 250],
+    MultiSlider  : [350, 150],
+    Crossfader   : [250, 50],
+    Range   : [250, 50],
+    Knob  : [100, 100],
+    TextField  : [150, 35], 
+  },
+  
+  propertyTypes : {
+    name          : 'string',
+    value         : 'any',
+    background: "color",
+    fill: "color",
+    stroke: "color",
+    x : "number",
+    y : "number",
+    width : "number",
+    height: "number",
+  },
+  tkmm : {
+    target : 'string',
+    key    : 'string',
+    min    : 'float',
+    max    : 'flaot',
+  },
+  events : {
+    onvaluechange : 'function',
+    ontouchmousedown : 'function',
+    ontouchmousemove : 'function',    
+    ontouchmouseup : 'function',
+    ontouchstart  : 'function',
+    ontouchmove   : 'function',
+    ontouchend    : 'function',
+    onmousedown   : 'function',
+    onmousemove   : 'function',
+    onmouseup     : 'function',
+  },
+  
+  compose : function() {
+    var obj = {};
+    for(var i = 0; i < arguments.length; i++) {
+      Interface.extend( obj, arguments[i] );
+    }
+    return obj;
+  },
+};
+
+Interface.Editor.properties = {
+  Knob  : (function() { 
+    var _a = Interface.Editor.compose( Interface.Editor.propertyTypes, { usesRotation:'boolean', centerZero:'boolean'}, Interface.Editor.tkmm, Interface.Editor.events ); 
+    delete _a.height;
+    return _a; 
+  })(),
+    
+  TextField : Interface.Editor.compose( Interface.Editor.propertyTypes, { fontSize:'number', target:'string', key:'string', onvaluechange:'function'} ), 
+    
+  Menu : Interface.Editor.compose( Interface.Editor.propertyTypes, { options : 'any', fontSize:'number', target:'string', key:'string', onvaluechange:'function'  } ), 
+    
+  Crossfader : Interface.Editor.compose( Interface.Editor.propertyTypes, { crossfaderWidth : 'number', requiresFocus: 'boolean', }, Interface.Editor.tkmm, Interface.Editor.events), 
+    
+  XY     : Interface.Editor.compose( Interface.Editor.propertyTypes, { requiresFocus: 'boolean', numChildren:'integer', childWidth:'number', usePhysics:'boolean', friction:'number', maxVelocity:'number', detectCollisions:'boolean', fps:'number'}, Interface.Editor.tkmm, Interface.Editor.events),     
+    
+  Label  : Interface.Editor.compose( Interface.Editor.propertyTypes, { size : 'number', "style" : ['normal', 'bold', 'italic'], hAlign: ['left', 'center', 'right'], vAlign : ['top', 'middle', 'bottom'], font : 'string' } ),
+    
+  MultiButton : (function() { 
+    var _a = Interface.Editor.compose( 
+      Interface.Editor.propertyTypes, 
+      { mode : ['toggle', 'momentary', 'contact'], requiresFocus:'boolean', rows:'number', columns:'number' }, 
+      Interface.Editor.tkmm,
+      Interface.Editor.events 
+    );
+    delete _a.value;
+    return _a;
+  })(),    
+    
+  Button : Interface.Editor.compose( Interface.Editor.propertyTypes, { mode : ['toggle', 'momentary', 'contact'], requiresFocus: 'boolean', label:'string', }, Interface.Editor.tkmm, Interface.Editor.events),    
+    
+  Slider : Interface.Editor.compose( Interface.Editor.propertyTypes, { isVertical:'boolean', label:'string', requiresFocus:'boolean', }, Interface.Editor.tkmm, Interface.Editor.events ),
+    
+  MultiSlider : (function() {
+    var _a = Interface.Editor.compose( Interface.Editor.propertyTypes, { /*isVertical:'boolean',*/ requiresFocus:'boolean', count:'number' }, Interface.Editor.events );
+    delete _a.value; return _a;
+  })(),
+    
+  Range : Interface.Editor.compose( Interface.Editor.propertyTypes, { requiresFocus:'boolean', handleSize:'number' }, Interface.Editor.tkmm, Interface.Editor.events ),
+    
+  Panel : { name:'string', useRelativeSizesAndPositions:'boolean', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
+};
+
+Interface.Editor.init();
+/*var selected = null;
 function chooseFile(name, callback) {
   var chooser = $(name);
   chooser.trigger('click');            
   chooser.change(callback);
 }
-
-Mousetrap.bind('backspace', function() { 
-  if(selected !== null && selected !== panel) {
-    if(typeof selected.widget !== 'undefined') panel.remove( selected.widget );
-    widgets.splice( widgets.indexOf( selected ) );
-    $(selected).remove();
-    panel.refresh();
-  }
-}, 'keyup');
-
-function keymove() {
-  if(selected.initialized === true)  {
-    var drag = selected,
-        pos = $(drag).position(),
-        containerPos = $(panel.container).position(),
-        w = $("#interfaceArea").width(),
-        h = $("#interfaceArea").height(),
-        x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
-        y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
-        width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
-        height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
-    
-    selected.widget.bounds = [x,y,width,height];
-  }
-}
-
-Mousetrap.bind('left', function() { if(selected !== null) $(selected).css('left', '-=1px'); keymove(); });
-Mousetrap.bind('right', function() { if(selected !== null) $(selected).css('left', '+=1px'); keymove(); });
-Mousetrap.bind('up', function() { if(selected !== null) $(selected).css('top', '-=1px'); keymove(); });
-Mousetrap.bind('down', function() { if(selected !== null) $(selected).css('top', '+=1px'); keymove(); });
-
-Mousetrap.bind('shift+left', function() { if(selected !== null) $(selected).css('left', '-=5px'); keymove(); });
-Mousetrap.bind('shift+right', function() { if(selected !== null) $(selected).css('left', '+=5px'); keymove(); });
-Mousetrap.bind('shift+up', function() { if(selected !== null) $(selected).css('top', '-=5px'); keymove(); });
-Mousetrap.bind('shift+down', function() { if(selected !== null) $(selected).css('top', '+=5px'); keymove(); });
-
-var optionIsDown = false;
-Mousetrap.bind('option', function() { optionIsDown = true; }, 'keydown');
-Mousetrap.bind('option', function() { optionIsDown = false; }, 'keyup');
-
-var makeWidget = function(e, shouldNotTrigger) {
-  var d = $("<div>")
-  .addClass("block")
-  .draggable({ 
-    containment:$("#editor"),
-    scroll:false,
-    snap:true,
-    snapTolerance:5, 
-    start: function() {},
-    revert: function(didDrop) { if(!didDrop) { this.remove(); } },
-    revertDuration:250,
-  })
-  .resizable({
-    handles:"se",
-    stop: function(event, ui){
-      
-      if(selected.widget) {
-        var w = $("#interfaceArea").width(),
-            h = $("#interfaceArea").height(),
-            width = panel.useRelativeSizesAndPositions ? ui.size.width / w : Math.round(ui.size.width),
-            height = panel.useRelativeSizesAndPositions ? ui.size.height / h : Math.round(ui.size.height);
-        
-        selected.widget.bounds = [selected.widget.x, selected.widget.y, width, height];       
-      }
-    },
-    containment: $("#interfaceArea"),
-  })
-  .mousedown(function(e) { 
-    if(selected !== null) {
-      $(selected).removeClass('selected');
-    }
-    if(optionIsDown) {
-      makeWidget.call(d, e, true);
-    }else{
-      selected = this;
-      $(selected).addClass('selected');
-      makeOptions();
-    }
-  })
-  .css({
-    position : 'absolute',
-    display : 'block',
-    backgroundColor : 'rgba(255,255,255,.5)',
-  })
-  .offset( {left:$(this).position().left + 5, top:$(this).position().top + 5} );
-  
-  $("#editor").append(d);
-  
-  if(!shouldNotTrigger)
-    $(d).trigger(e);
-  
-  selected.widgetType = $($(this).children()[0]).html();// || this.type;
-}
-
-$("#widgets ul li div").on('mousedown', makeWidget );
-
-var wh = {
-  Slider : [50,250],
-  Button : [50,50],
-  XY     : [250,250],
-  Label  : [150, 35],
-  Menu   :  [150, 35],  
-  MultiButton  : [250, 250],
-  MultiSlider  : [350, 150],
-  Crossfader   : [250, 50],
-  Range   : [250, 50],
-  Knob  : [100, 100],
-  TextField  : [150, 35],  
-}
-
-var widgets = [];
-$("#interfaceArea").droppable({
-  accept:".block",
-  revert: true,
-  drop: function( event, ui ) { 
-    var drag = selected,
-        pos = $(drag).position(),
-        containerPos = $(panel.container).position(),
-        w = $("#interfaceArea").width(),
-        h = $("#interfaceArea").height(),
-        x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
-        y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
-        width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
-        height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
-    
-    if(selected.initialized === true)  {
-      selected.widget.bounds = [x,y,width,height];
-    }else{
-      var d = new Interface[selected.widgetType]({
-        x: x,
-        y: y, 
-        width: width, 
-        height: height,
-      })
-
-      selected.widget = d;
-      widgets.push(selected);
-      selected.initialized = true;
-      window[d.name] = d;
-      d.panel = panel;
-
-      makeOptions();
-
-    }
-  },
-  over: function( event, ui ) {
-    if(!selected.init) {
-      var w = wh[selected.widgetType][0],
-          h = wh[selected.widgetType][1];
-      $(selected).animate({
-          width:(w-2)+'px',
-          height:(h-2)+'px',
-        }, 200, function() {
-          selected.init = true;
-          // Animation complete.
-      });
-    }
-  },
-})
-
-panel = new Interface.Panel({ container:$("#interfaceArea"), name:'panel' });
-panel.widget = panel;
-panel.name = 'panel';
-
-$(panel.canvas).mousedown(function(e) {
-  if(selected !== null) {
-    $(selected).removeClass('selected');
-  }
-  selected = panel;
-  makeOptions();
-});
-var __status = false;
-
-runstop = function(runOrStop) {
-  if(!__status && runOrStop) {
-    $("#widgets ul li div").off('mousedown', makeWidget );
-    panel.active = true;
-    //$(panel.container).on( 'mousedown mousemove mouseup', panel.mouseEvent ); 
-    for(var i = 0; i < widgets.length; i++) {
-      var w = widgets[i];
-      if(typeof w.widget.children !== 'undefined' && w.widget.children.length > 0 && w.widgetType !== "XY") {
-        for(var j = 0; j < w.widget.children.length; j++) {
-          window[w.widget.name] = w.widget.children[j];
-          panel.add(window[w.widget.name]);
-        }
-      }else{
-        window[w.widget.name] = w.widget;
-        panel.add(w.widget);
-      }
-      $(w).hide();
-    }
-    __status = true;
-  }else if(!runOrStop){
-    $("#widgets ul li div").on('mousedown', makeWidget );
-    //$(panel.container).off();
-    panel.active = false;
-    for(var i = 0; i < widgets.length; i++) {
-      $(widgets[i]).show();
-      panel.remove(widgets[i].widget);
-      panel.refresh();
-    }
-    __status = false;
-  }else{
-    panel.active = true;
-  }
-}
-
-panel.active = false;
-
-$("#newButton").button({icons:{ primary:'ui-icon-document' } });
-$("#openButton").button({icons:{ primary:'ui-icon-folder-open' } });
-$("#saveButton").button({icons:{ primary:'ui-icon-disk' } });
-$("#playButton").button( { text:false, icons:{ primary:'ui-icon-play' } }).click(function() { runstop(1) });
-$("#stopButton").button( { text:false, icons:{ primary:'ui-icon-stop' } }).click(function() { runstop(0) });
-
-$("#widgets ul li div").button();
-
-(function($) {
-  $(function() {
-    $("#sidebar > div").accordion({ 
-      header: "h3",
-      collapsible: true,
-      heightStyle:'content',
-      //create: function(event) { $(event.target).accordion( {active:false} ); },
-      activate : function(event, ui) {
-        $(ui.newHeader).blur();
-      },
-    });
-  })
-})(jQuery);
-
-$("#sidebar > div").first().accordion({ active:0 });
-
-$("#panelBackgroundColor").change( function() { panel.background = $(this).val(); })
-$("#panelFillColor").change( function() { panel.fill = $(this).val(); })
-$("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
 
   cereal = function(widget) {
     console.log("CEREAL");
@@ -566,7 +781,8 @@ $("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
     }
     
     template = template.replace('// place your script here', str);
-
+    
+    console.log("BEFORE CHOOSE FILE")
     chooseFile(
       "#saveDialog",
       function(evt) { 
@@ -574,6 +790,7 @@ $("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
         fs.writeFileSync($(this).val(), template, ['utf-8']);
       } 
     )
+    console.log("AFTER CHOOSE FILE");
     return template;
   };
   
@@ -583,6 +800,7 @@ $("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
   
   $(window).resize( function(e) { 
     if (e.target == window) {
+      $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() - 2);
       panel.redoBoundaries();
     
       for(var i = 0; i < widgets.length; i++) {
@@ -600,186 +818,9 @@ $("#panelStrokeColor").change( function() { panel.stroke = $(this).val(); })
       e.stopPropagation();
     }
   });
-  
-  makeOptions = function() {
-    var json = {}
-    var widget = selected.widget;
-    if(typeof widget !== 'undefined' ) {
-      var heading = $("<h3>").text( widget.type ).css({ 'margin-top':0 });
-      var list = $("<table>").css({width:"100%"});
-      if(properties[ widget.type ]) {
-        var props = properties[ widget.type ];
-        var count = 0;
-        for(var _key in props) {
-          (function() {
-            var c = count++;
-            var _w = widget;
-            var key = _key;
-            var row = $("<tr>");
-            
-            var input, label, extra, type = props[key];
-            if(Array.isArray(type)) {
-              input = $("<select>");
-              for(var i = 0; i < type.length; i++) {
-                var option = $("<option>"+type[i]+"</option>");
-                input.append(option);
-              }
-            }else{
-              if(type === 'boolean') {
-                input = $("<select>").append("<option value='true'>true</option>").append("<option value='false'>false</option>");
-                $(input).val( _w[ key ] === true ? 'true' : 'false' );
-              }else if(type === 'color'){
-                if(widget.type === 'Panel') {
-                  input = $("<input>").addClass('color').val( _w[ key ] );  
-                }else{
-                  input = $("<input>").addClass('color').val( _w[ "_" + key ]() );
-                }
-              }else if(type === 'function') {
-                input = $("<button>edit function</button>").button();
-                extra = $("<tr>").css({display:"none", width:'100%', height:'100px' });
-                var td = $("<td colspan=2>");
-                var ta = $("<textarea>").css({width:'100%', height:'100px'});
-                ta.val( '' + _w[key] );
-                td.append( ta );
-                extra.append( td );
+  */
 
-                input.click( function() { 
-                  if($(extra).css('display') !== 'none') {
-                    var functionString = ta.val();
-                    if(functionString !== '')
-                    eval('_w[key] = ' + functionString);
-                  }
-                  extra.toggle(); 
-                });
-              }else if (type === 'readonly'){
-                input = $("<span>").text( _w[key] );
-                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
-              }else{
-                input = $("<input>");
-                if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
-              }
-            }
-            
-            input.attr("id", _w.name + "_" + key);
-            label = $("<label>").attr("for", _w.name + "_" + key);
-            label.html(key);
-            
-            //if(typeof _w[key] !== 'undefined') $(input).val(_w[key]);
-            
-            $(input).change( function() {
-              if(type === 'boolean') { 
-                _w[key] = $(input).val() === 'true' ? true : false;
-              }else if(type === 'integer') { 
-                _w[key] = parseInt( $(input).val() );
-              }else if(type === 'float') { 
-                _w[key] = parseFloat( $(input).val() );
-              }else{
-                if(key === 'target') {
-                  var v = $(input).val()
-                  _w[key] = v === 'OSC' || v === 'MIDI' ? v : eval(v);
-                }else{
-                  _w[key] = $(input).val();
-                }
-              }
-              _w.refresh();
-            });
-            
-            row.append( $("<td>").append(label) ); 
-            var _input = $("<td>").append(input);
-            row.append( _input );
-            
-            list.append(row);
-            if(typeof extra !== 'undefined') list.append(extra); 
-          })();
-        }
-      }
-      
-      $("#options").html(heading);
-      $("#options").append(list);
-      jscolor.bind();
-    }
-  }
   
-  propertyTypes = {
-    name          : 'string',
-    value         : 'any',
-    background: "color",
-    fill: "color",
-    stroke: "color",
-    x : "number",
-    y : "number",
-    width : "number",
-    height: "number",
-  };
-  tkmm = {
-    target : 'string',
-    key    : 'string',
-    min    : 'float',
-    max    : 'flaot',
-  }
-  events = {
-    onvaluechange : 'function',
-    ontouchmousedown : 'function',
-    ontouchmousemove : 'function',    
-    ontouchmouseup : 'function',
-    ontouchstart  : 'function',
-    ontouchmove   : 'function',
-    ontouchend    : 'function',
-    onmousedown   : 'function',
-    onmousemove   : 'function',
-    onmouseup     : 'function',
-  }
-  
-  compose = function() {
-    var obj = {};
-    for(var i = 0; i < arguments.length; i++) {
-      Interface.extend( obj, arguments[i] );
-    }
-    return obj;
-  }
-  properties = {
-    Knob  : (function() { 
-      var _a = compose( propertyTypes, { usesRotation:'boolean', centerZero:'boolean'}, tkmm, events ); 
-      delete _a.height;
-      return _a; 
-    })(),
-    
-    TextField : compose( propertyTypes, { fontSize:'number', target:'string', key:'string', onvaluechange:'function'} ), 
-    
-    Menu : compose( propertyTypes, { options : 'any', fontSize:'number', target:'string', key:'string', onvaluechange:'function'  } ), 
-    
-    Crossfader : compose( propertyTypes, { crossfaderWidth : 'number', requiresFocus: 'boolean', }, tkmm, events), 
-    
-    XY     : compose( propertyTypes, { requiresFocus: 'boolean', numChildren:'integer', usePhysics:'boolean', friction:'number', maxVelocity:'number', detectCollisions:'boolean', fps:'number'}, tkmm, events),     
-    
-    Label  : compose( propertyTypes, { size : 'number', "style" : ['normal', 'bold', 'italic'], hAlign: ['left', 'center', 'right'], vAlign : ['top', 'middle', 'bottom'], font : 'string' } ),
-    
-    MultiButton : (function() { 
-      var _a = compose( 
-        propertyTypes, 
-        { mode : ['toggle', 'momentary', 'contact'], requiresFocus:'boolean', rows:'number', columns:'number' }, 
-        tkmm,
-        events 
-      );
-      delete _a.value;
-      return _a;
-    })(),    
-    
-    Button : compose( propertyTypes, { mode : ['toggle', 'momentary', 'contact'], requiresFocus: 'boolean', label:'string', }, tkmm, events),    
-    
-    Slider : compose( propertyTypes, { isVertical:'boolean', label:'string', requiresFocus:'boolean', }, tkmm, events ),
-    
-    MultiSlider : (function() {
-      var _a = compose( propertyTypes, { /*isVertical:'boolean',*/ requiresFocus:'boolean', count:'number' }, events );
-      delete _a.value; return _a;
-    })(),
-    
-    Range : compose( propertyTypes, { requiresFocus:'boolean', handleSize:'number' }, tkmm, events ),
-    
-    Panel : { name:'string', useRelativeSizesAndPositions:'boolean', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
-  };
-
-  setTimeout(function() { selected = panel; makeOptions();}, 100);
 </script>
 </body>
 </html
