@@ -367,41 +367,34 @@ Interface.Editor = {
   },
   
   runstop : function(runOrStop) {
-    console.log("START RUN STOP");
-    if(!Interface.Editor.isEditing && runOrStop) {
+    if(Interface.Editor.isEditing && runOrStop) {
       $("#widgets ul li div").off('mousedown', Interface.Editor.makeWidget );
       
       Interface.Editor.panel.active = true;
       
       for(var i = 0; i < Interface.Editor.widgets.length; i++) {
         var w = Interface.Editor.widgets[i];
-        if(typeof w.widget.children !== 'undefined' && w.widget.children.length > 0 && w.widgetType !== "XY") {
-          for(var j = 0; j < w.widget.children.length; j++) {
-            window[w.widget.name] = w.widget.children[j];
-            console.log(window[w.widget.name]);
-            Interface.Editor.panel.add(window[w.widget.name]);
-          }
-        }else{
-          window[w.widget.name] = w.widget;
-          Interface.Editor.panel.add(w.widget);
-        }
+        window[w.widget.name] = w.widget;
+                  
+        Interface.Editor.panel.add(w.widget);
         $(w).hide();
       }
-      Interface.Editor.isEditing = true;
+      Interface.Editor.isEditing = false;
     }else if(!runOrStop){
       $("#widgets ul li div").on('mousedown', Interface.Editor.makeWidget );
-      //$(panel.container).off();
+
       Interface.Editor.panel.active = false;
+      
       for(var i = 0; i < Interface.Editor.widgets.length; i++) {
         $(Interface.Editor.widgets[i]).show();
         Interface.Editor.panel.remove(Interface.Editor.widgets[i].widget);
         Interface.Editor.panel.refresh();
       }
-      Interface.Editor.isEditing = false;
+      
+      Interface.Editor.isEditing = true;
     }else{
       Interface.Editor.panel.active = true;
     }
-    console.log("END RUN STOP")
   },
   
   makeOptions : function() {
