@@ -56,13 +56,17 @@ td { font-size:.6em; }
   background-color:#eee;
   position:relative;
 }
+
+#interfaceContainer {
+  float:left;
+  display:block;  
+}
 #interfaceArea {
-  left:0;
-  width:80%;
-  height:100%;
+  left:30px;
+  width:320px;
+  height:480px;
   display:block;
   border:1px solid #aaa;
-  float:left;
 }
 
 #interfaceArea, #widgets {
@@ -101,7 +105,9 @@ td { font-size:.6em; }
 </head>
 <body>
 <div id="editor">
-  <div id="interfaceArea"></div>
+  <div id='interfaceContainer'>
+    <div id="interfaceArea"></div>
+  </div>
   
   <div id="sidebar">
     <input style="display:none;" id="fileDialog" type="file" />
@@ -141,11 +147,22 @@ Interface.Editor = {
   widgets : [],
   selected : null,
   
+  centerPanel : function() {
+    var containerWidth = $(window).width() - $("#sidebar").outerWidth(), 
+        left = (containerWidth / 2) - ($("#interfaceArea").width() / 2),
+        containerHeight = $(window).height(),
+        top = (containerHeight / 2) - ($("#interfaceArea").height() / 2);
+
+    $("#interfaceContainer").width( containerWidth );
+    $("#interfaceContainer").height( containerHeight );    
+    $("#interfaceArea").offset({ 'left': left, 'top': top });
+  },
+  
   init : function() {
     $("#widgets ul li div").on( 'mousedown', Interface.Editor.makeWidget );
     
-    $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() );
-
+    this.centerPanel();
+    
     this.panel = new Interface.Panel({ container:$("#interfaceArea"), name:'panel' });
     this.panel.widget = this.panel;
     this.panel.name = 'panel';
@@ -159,6 +176,46 @@ Interface.Editor = {
         Interface.Editor.selected = Interface.Editor.panel;
         Interface.Editor.makeOptions();
       }
+    });
+  
+    var w = this.panel.width,
+        h = this.panel.height;
+    
+    Object.defineProperties( this.panel, {
+      'width' : {
+        get : function() { return w; },
+        set : function(val) {
+          w = val;
+          $("#interfaceArea").width( w );
+          $(this.canvas).attr({
+            'width':  this.width,
+            'height': this.height,
+          });
+      
+          this.ctx.translate(0.5, 0.5);
+          this.ctx.lineWidth = 1;
+          
+          Interface.Editor.centerPanel();
+          Interface.Editor.repositionGhostWidgets();
+        },
+      },
+      'height' : {
+        get : function() { return h; },
+        set : function(val) {
+          h = val;
+          $("#interfaceArea").height( h );
+          $(this.canvas).attr({
+            'width':  this.width,
+            'height': this.height,
+          });
+      
+          this.ctx.translate(0.5, 0.5);
+          this.ctx.lineWidth = 1;
+                   
+          Interface.Editor.centerPanel();
+          Interface.Editor.repositionGhostWidgets();          
+        },
+      },
     });
     
     $("#interfaceArea").droppable({
@@ -524,6 +581,7 @@ Interface.Editor = {
     }
     return obj;
   },
+  
   chooseFile : function(name, callback) {
     var chooser = $(name);
     chooser.trigger('click');            
@@ -715,22 +773,26 @@ Interface.Editor = {
     Interface.Editor.runstop(false);
   },
   
+  repositionGhostWidgets : function() {
+    for(var i = 0; i < Interface.Editor.widgets.length; i++) {
+      var w = Interface.Editor.widgets[i];
+      var _widget = w.widget;
+        
+      $(w).css({
+        left : $("#interfaceArea").offset().left + _widget.x * Interface.Editor.panel.width,
+        top : $("#interfaceArea").offset().top +_widget.y * Interface.Editor.panel.height,
+        width  : _widget.width * Interface.Editor.panel.width,
+        height : _widget.height * Interface.Editor.panel.height,
+      });
+    }
+      
+  },
   resize : function (e) {
     if (e.target == window) {
-      $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() - 2);
+      //$("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() - 2);
       Interface.Editor.panel.redoBoundaries();
-    
-      for(var i = 0; i < Interface.Editor.widgets.length; i++) {
-        var w = Interface.Editor.widgets[i];
-        var _widget = w.widget;
-        
-        $(w).css({
-          left : _widget.x * Interface.Editor.panel.width,
-          top : _widget.y * Interface.Editor.panel.height,
-          width  : _widget.width * Interface.Editor.panel.width,
-          height : _widget.height * Interface.Editor.panel.height,
-        });
-      }
+      
+      Interface.Editor.repositionGhostWidgets();
       
       e.stopPropagation();
     }
@@ -776,7 +838,7 @@ Interface.Editor.properties = {
     
   Range : Interface.Editor.compose( Interface.Editor.propertyTypes, { requiresFocus:'boolean', handleSize:'number' }, Interface.Editor.tkmm, Interface.Editor.events ),
     
-  Panel : { name:'string', useRelativeSizesAndPositions:'boolean', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
+  Panel : { name:'string', useRelativeSizesAndPositions:'boolean', width:'number', height:'number', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
 };
 
 if(typeof require !== 'undefined') {
