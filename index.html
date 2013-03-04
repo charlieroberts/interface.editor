@@ -135,32 +135,6 @@ td { font-size:.6em; }
 </div>
 
 <script>
-if(typeof require !== 'undefined') {
-  var gui = require('nw.gui'),
-      fs  = require('fs');
-      win = gui.Window.get(),
-      your_menu = new gui.Menu({ type: 'menubar' }),
-      file = new gui.MenuItem({ label: 'File' }),
-      submenu = new gui.Menu();
-  
-  submenu.append( new gui.MenuItem({ 
-    label: 'Open Interface cmd-O',
-    click: function() {},//global.interface.openFile,
-  }));
-  
-  submenu.append( new gui.MenuItem({ 
-    label: 'Save Interface cmd-S',
-    click: function() {}, //global.interface.saveFile,
-  }) );
-  
-  file.submenu = submenu;
-  
-  gui.Window.get().menu = your_menu;
-  your_menu.insert( file, 1 );
-  
-  console.log(win, fs);
-}
-
 Interface.Editor = {
   isOptionDown : false,
   isEditing : true,
@@ -262,6 +236,8 @@ Interface.Editor = {
     setTimeout(function() { Interface.Editor.selected = Interface.Editor.panel; Interface.Editor.makeOptions(); }, 100);
     
     this.bindKeys();
+    
+    $(window).resize( this.resize );
   },
   
   bindKeys : function() {
@@ -354,13 +330,13 @@ Interface.Editor = {
     if(Interface.Editor.selected.initialized === true)  {
       var drag = Interface.Editor.selected,
           pos = $(drag).position(),
-          containerPos = $(panel.container).position(),
+          containerPos = $(Interface.Editor.panel.container).position(),
           w = $("#interfaceArea").width(),
           h = $("#interfaceArea").height(),
-          x = panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
-          y = panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
-          width = panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
-          height = panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
+          x = Interface.Editor.panel.useRelativeSizesAndPositions ? (pos.left - containerPos.left ) / w : Math.round(pos.left - containerPos.left),
+          y = Interface.Editor.panel.useRelativeSizesAndPositions ? (pos.top - containerPos.top) / h : Math.round(pos.top - containerPos.top),
+          width = Interface.Editor.panel.useRelativeSizesAndPositions ? $(drag).width() / w : Math.round($(drag).width()),
+          height = Interface.Editor.panel.useRelativeSizesAndPositions ? $(drag).height() / h : Math.round($(drag).height());
     
       Interface.Editor.selected.widget.bounds = [x,y,width,height];
     }
@@ -547,6 +523,217 @@ Interface.Editor = {
     }
     return obj;
   },
+  chooseFile : function(name, callback) {
+    var chooser = $(name);
+    chooser.trigger('click');            
+    chooser.change(callback);
+  },
+  saveInterface : function() {
+    var template = fs.readFileSync( './template.htm', ['utf-8'] );
+
+    var str = "panel = new Interface.Panel(";
+    var json = {};
+    
+    for(var i = 0; i < Interface.Editor.panel.serializeMe.length; i++) {
+      var key = Interface.Editor.panel.serializeMe[i];
+      if(typeof Interface.Editor.panel[key] !== 'undefined' && Interface.Editor.panel[key] !== null) {
+        json[key] = Interface.Editor.panel[key];
+      }
+    }
+    
+    str += Interface.Editor.serialize(json);
+    
+    str += ');\n'
+
+    for(var i = 0; i < Interface.Editor.panel.children.length; i++) {
+      var child = Interface.Editor.panel.children[i];
+      str += Interface.Editor.cereal( child );
+      str += 'panel.add( ' + child.name + ' );\n';
+    }
+    
+    template = template.replace('// place your script here', str);
+    
+    Interface.Editor.chooseFile(
+      "#saveDialog",
+      function(evt) { 
+        console.log("SAVE TO : " + $(this).val());
+        fs.writeFileSync($(this).val(), template, ['utf-8']);
+      } 
+    )
+    
+    return template;
+  },
+  serialize : function(_obj){
+     switch (typeof _obj){
+        case 'number':
+        case 'boolean':
+        case 'function':
+           return _obj;
+           break;
+           
+        case 'string':
+           return '"' + _obj + '"';
+           break;
+
+        case 'object':
+           var str;
+           if (Array.isArray(_obj) || typeof _obj.callee !== 'undefined'){
+              str = '[';
+              var i, len = _obj.length;
+              for (i = 0; i < len-1; i++) { str += Interface.Editor.serialize(_obj[i]) + ','; }
+              str += serialize(_obj[i]) + ']';
+           }else{
+              str = '{\n';
+              var key, count = 0, length = Object.keys(_obj).length - 1;
+
+              for (key in _obj) { 
+                str += "  \"" + key + '\":' + Interface.Editor.serialize(_obj[key]);
+                if(count++ < length) str += ",\n";
+              }
+              str += '\n}';
+           }
+           return str;
+           break;
+
+        default:
+           return 'UNKNOWN';
+           break;
+     }
+  },
+  cereal : function(widget) {
+    console.log("CEREAL");
+    var json = {};
+    for(var i = 0; i < widget._serializeMe.length; i++) {
+      var key = widget._serializeMe[i];
+      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
+        json[key] = widget[key];
+      }
+    }
+    for(var j = 0; j < widget.serializeMe.length; j++) {
+      var key = widget.serializeMe[j];
+      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
+        json[key] = widget[key];
+      }
+    }
+
+    var str = widget.name + " = new Interface." + widget.type + "("
+    
+    str += Interface.Editor.serialize(json);
+    
+    str += ");\n"
+    
+    return str;
+  },
+  openInterface : function() {
+    Interface.Editor.chooseFile(
+      "#fileDialog",
+      function(evt) { 
+        var file = fs.readFileSync($(this).val(), ['utf-8']);
+        file = file.split("<body>");
+        console.log(file[1]);
+        Interface.Editor.processFile(file[1]);
+      }
+    );
+  },
+  processFile : function(file) {
+    var expr = /\(\{[^;]*\}\);/g // doesn't allow semi-colons in user-defined functions, but other than that pretty good
+
+    var objs = file.match(expr);
+    
+    for(var i = 1; i < objs.length; i++) {
+      (function() {
+        objs[i] = objs[i].substr(1, objs[i].length - 3); // get rid of trailing );
+
+        eval("var widget = " + objs[i]);
+        
+        var type = widget.type;
+        
+        window[widget.name] = widget = new Interface[widget.type](widget);
+        
+        Interface.Editor.panel.add(window[widget.name]);
+      
+        var d = $("<div>").addClass("block");
+  
+        $(d).draggable({ 
+          containment:$("#interfaceArea"),
+          scroll:false,
+          snap:true,
+          snapTolerance:5, 
+          revert: function(didDrop) { if(!didDrop) { this.remove(); } },
+          revertDuration:250,
+        });
+        
+        d.resizable({
+          handles:"se",
+          stop: function(event, ui){
+            if(Interface.Editor.selected.widget) {
+              var w = $("#interfaceArea").width(),
+                  h = $("#interfaceArea").height(),
+                  width = ui.size.width / w,
+                  height = ui.size.height / h;
+        
+              Interface.Editor.selected.widget.width = width;
+              Interface.Editor.selected.widget.height = height;        
+            }
+          },
+          containment: $("#interfaceArea"),
+        });
+        d.mousedown(function(e) { 
+          if(Interface.Editor.selected !== null) {
+            $(Interface.Editor.selected).removeClass('selected');
+          }
+          Interface.Editor.selected = d;
+          $(Interface.Editor.selected).addClass('selected');
+          e.preventDefault();
+          Interface.Editor.makeOptions();
+        });
+
+        var w = $("#interfaceArea").width(),
+            h = $("#interfaceArea").height();
+          
+        var dcss = {width: widget.width * w, height: widget.height * h };
+        dcss.position = 'absolute';
+        dcss.display = 'block';
+        dcss.backgroundColor = 'rgba(255,255,255,.5)'
+
+        $(d).css( dcss );
+        $(d).offset( {left:widget.x * w, top:widget.y * h} );
+
+        $("#editor").append(d);
+      
+
+        d.widgetType = type;
+        d.widget = widget;
+        d.initialized = d.init = true;
+
+        Interface.Editor.widgets.push(d);
+        Interface.Editor.selected = d;
+        Interface.Editor.selected.widget = widget;
+      })();
+    }
+    Interface.Editor.runstop(false);
+  },
+  
+  resize : function (e) {
+    if (e.target == window) {
+      $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() - 2);
+      Interface.Editor.panel.redoBoundaries();
+    
+      for(var i = 0; i < Interface.Editor.widgets.length; i++) {
+        var w = Interface.Editor.widgets[i];
+        var _widget = w.widget;
+
+        $(w).css({
+          x : _widget.x * $(Interface.Editor.panel.canvas).width(),
+          y : _widget.y * $(Interface.Editor.panel.canvas).height(),
+          width  : _widget.width * $(Interface.Editor.panel.canvas).width(),
+          height : _widget.height * $(Interface.Editor.panel.canvas).height(),
+        });
+      }
+      
+      e.stopPropagation();
+    }
+  },
 };
 
 Interface.Editor.properties = {
@@ -591,228 +778,31 @@ Interface.Editor.properties = {
   Panel : { name:'string', useRelativeSizesAndPositions:'boolean', background:'color', childBackground:'color', childFill:'color', childStroke:'color' }
 };
 
-Interface.Editor.init();
-/*var selected = null;
-function chooseFile(name, callback) {
-  var chooser = $(name);
-  chooser.trigger('click');            
-  chooser.change(callback);
+if(typeof require !== 'undefined') {
+  var gui = require('nw.gui'),
+      fs  = require('fs');
+      win = gui.Window.get(),
+      your_menu = new gui.Menu({ type: 'menubar' }),
+      file = new gui.MenuItem({ label: 'File' }),
+      submenu = new gui.Menu();
+  
+  submenu.append( new gui.MenuItem({ 
+    label: 'Open Interface cmd-O',
+    click: Interface.Editor.openInterface,
+  }));
+  
+  submenu.append( new gui.MenuItem({ 
+    label: 'Save Interface cmd-S',
+    click: Interface.Editor.saveInterface,
+  }) );
+  
+  file.submenu = submenu;
+  
+  gui.Window.get().menu = your_menu;
+  your_menu.insert( file, 1 );
 }
 
-  cereal = function(widget) {
-    console.log("CEREAL");
-    var json = {};
-    for(var i = 0; i < widget._serializeMe.length; i++) {
-      var key = widget._serializeMe[i];
-      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
-        json[key] = widget[key];
-      }
-    }
-    for(var j = 0; j < widget.serializeMe.length; j++) {
-      var key = widget.serializeMe[j];
-      if(typeof widget[key] !== 'undefined' && widget[key] !== null) {
-        json[key] = widget[key];
-      }
-    }
-
-    var str = widget.name + " = new Interface." + widget.type + "("
-    
-    str += serialize(json);
-    
-    str += ");\n"
-    
-    return str;
-  }
-  
-  // adapted from http://blog.stchur.com/2007/04/06/serializing-objects-in-javascript/
-  function serialize(_obj){
-     switch (typeof _obj){
-        case 'number':
-        case 'boolean':
-        case 'function':
-           return _obj;
-           break;
-           
-        case 'string':
-           return '"' + _obj + '"';
-           break;
-
-        case 'object':
-           var str;
-           if (Array.isArray(_obj) || typeof _obj.callee !== 'undefined'){
-              str = '[';
-              var i, len = _obj.length;
-              for (i = 0; i < len-1; i++) { str += serialize(_obj[i]) + ','; }
-              str += serialize(_obj[i]) + ']';
-           }else{
-              str = '{\n';
-              var key, count = 0, length = Object.keys(_obj).length - 1;
-
-              for (key in _obj) { 
-                str += "  \"" + key + '\":' + serialize(_obj[key]);
-                if(count++ < length) str += ",\n";
-              }
-              str += '\n}';
-           }
-           return str;
-           break;
-
-        default:
-           return 'UNKNOWN';
-           break;
-     }
-  }
-
-  openInterface = function() {
-    chooseFile(
-      "#fileDialog",
-      function(evt) { 
-        var file = fs.readFileSync($(this).val(), ['utf-8']); 
-        processFile(file);
-      }
-    );
-  };
-  
-  processFile = function(file) {
-    var expr = /\(\{[^;]*\}\);/g // doesn't allow semi-colons in user-defined functions, but other than that pretty good
-
-    var objs = file.match(expr);
-    
-    for(var i = 1; i < objs.length; i++) {
-      (function() {
-        objs[i] = objs[i].substr(1, objs[i].length - 3); // get rid of trailing );
-        eval("var widget = " + objs[i]);
-        
-        var type = widget.type;
-        window[widget.name] = widget = new Interface[widget.type](widget);
-        
-        panel.add(window[widget.name]);
-      
-        var d = $("<div>").addClass("block");
-  
-        $(d).draggable({ 
-          containment:$("#interfaceArea"),
-          scroll:false,
-          snap:true,
-          snapTolerance:5, 
-          revert: function(didDrop) { if(!didDrop) { this.remove(); } },
-          revertDuration:250,
-        });
-        
-        d.resizable({
-          handles:"se",
-          stop: function(event, ui){
-      
-            if(selected.widget) {
-              var w = $("#interfaceArea").width(),
-                  h = $("#interfaceArea").height(),
-                  width = ui.size.width / w,
-                  height = ui.size.height / h;
-        
-              selected.widget.width = width;
-              selected.widget.height = height;        
-            }
-          },
-          containment: $("#interfaceArea"),
-        });
-        d.mousedown(function(e) { 
-          if(selected !== null) {
-            $(selected).removeClass('selected');
-          }
-          selected = d;
-          $(selected).addClass('selected');
-          e.preventDefault();
-          makeOptions();
-        });
-
-        var w = $("#interfaceArea").width(),
-            h = $("#interfaceArea").height();
-          
-        var dcss = {width: widget.width * w, height: widget.height * h };
-        dcss.position = 'absolute';
-        dcss.display = 'block';
-        dcss.backgroundColor = 'rgba(255,255,255,.5)'
-
-        $(d).css( dcss );
-        $(d).offset( {left:widget.x * w, top:widget.y * h} );
-
-        $("#editor").append(d);
-      
-
-        d.widgetType = type;
-        d.widget = widget;
-        d.initialized = d.init = true;
-
-        widgets.push(d);
-        selected = d;
-        selected.widget = widget;
-      })();
-    }
-    runstop(false);
-  };
-  saveInterface = function() {
-    var template = fs.readFileSync( './template.htm', ['utf-8'] );
-
-    var str = "panel = new Interface.Panel(";
-    var json = {};
-    
-    for(var i = 0; i < panel.serializeMe.length; i++) {
-      var key = panel.serializeMe[i];
-      if(typeof panel[key] !== 'undefined' && panel[key] !== null) {
-        json[key] = panel[key];
-      }
-    }
-    
-    str += serialize(json);
-    
-    str += ');\n'
-
-    for(var i = 0; i < panel.children.length; i++) {
-      var child = panel.children[i];
-      str += cereal( child );
-      str += 'panel.add( ' + child.name + ' );\n';
-    }
-    
-    template = template.replace('// place your script here', str);
-    
-    console.log("BEFORE CHOOSE FILE")
-    chooseFile(
-      "#saveDialog",
-      function(evt) { 
-        console.log("SAVE TO : " + $(this).val());
-        fs.writeFileSync($(this).val(), template, ['utf-8']);
-      } 
-    )
-    console.log("AFTER CHOOSE FILE");
-    return template;
-  };
-  
-  $("#openButton").click(openInterface);
-
-  $("#saveButton").click(saveInterface);
-  
-  $(window).resize( function(e) { 
-    if (e.target == window) {
-      $("#interfaceArea").width( $(window).width() - $("#sidebar").outerWidth() - 2);
-      panel.redoBoundaries();
-    
-      for(var i = 0; i < widgets.length; i++) {
-        var w = widgets[i];
-        var _widget = w.widget;
-
-        $(w).css({
-          x : _widget.x * $(panel.canvas).width(),
-          y : _widget.y * $(panel.canvas).height(),
-          width  : _widget.width * $(panel.canvas).width(),
-          height : _widget.height * $(panel.canvas).height(),
-        });
-      }
-      
-      e.stopPropagation();
-    }
-  });
-  */
-
+Interface.Editor.init();
   
 </script>
 </body>
