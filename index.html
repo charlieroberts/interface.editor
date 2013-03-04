@@ -263,7 +263,6 @@ Interface.Editor = {
   },
   
   makeWidget : function(e, shouldNotTrigger) {
-    console.log("MAKE WIDGET", this);
     var d = $("<div>")
     .addClass("block")
     .draggable({ 
@@ -318,11 +317,13 @@ Interface.Editor = {
   },
   
   deleteSelectedWidget : function() {
-    if(Interface.Editor.selected !== null && Interface.Editor.selected !== panel) {
-      if(typeof Interface.Editor.selected.widget !== 'undefined') panel.remove( Interface.Editor.selected.widget );
-      widgets.splice( widgets.indexOf( Interface.Editor.selected ) );
-      $(Interface.Editor.selected).remove();
-      panel.refresh();
+    if(Interface.Editor.selected !== null && Interface.Editor.selected !== Interface.Editor.panel) {
+      if(typeof Interface.Editor.selected.widget !== 'undefined') Interface.Editor.panel.remove( Interface.Editor.selected.widget );
+      var idx = Interface.Editor.widgets.indexOf( Interface.Editor.selected );
+      Interface.Editor.widgets.splice( idx, 1 );
+      $( Interface.Editor.selected ).remove();
+      Interface.Editor.selected = null;
+      Interface.Editor.panel.refresh();
     }
   },
   
@@ -722,12 +723,12 @@ Interface.Editor = {
       for(var i = 0; i < Interface.Editor.widgets.length; i++) {
         var w = Interface.Editor.widgets[i];
         var _widget = w.widget;
-
+        
         $(w).css({
-          x : _widget.x * $(Interface.Editor.panel.canvas).width(),
-          y : _widget.y * $(Interface.Editor.panel.canvas).height(),
-          width  : _widget.width * $(Interface.Editor.panel.canvas).width(),
-          height : _widget.height * $(Interface.Editor.panel.canvas).height(),
+          left : _widget.x * Interface.Editor.panel.width,
+          top : _widget.y * Interface.Editor.panel.height,
+          width  : _widget.width * Interface.Editor.panel.width,
+          height : _widget.height * Interface.Editor.panel.height,
         });
       }
       
