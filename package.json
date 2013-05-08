@@ -1,5 +1,5 @@
 {
-  "name": "Interface.js builder",
+  "name": "Interface.jsBuilder",
   "main": "index.html",
   "window": {
     "toolbar":false
